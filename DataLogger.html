@@ -855,6 +855,7 @@
       ${renderContext()}
       ${body}
     </div>
+    ${renderGatherSheet()}
     ${renderModals()}
   `;
       bindEvents();
@@ -872,7 +873,6 @@
     }
 
     function renderContext() {
-      if (state.currentFlight && state.currentFlight.outcome) return '';
 
       const opSet = !!state.operator.name;
       const eqSet = state.equipment.drone_model || state.equipment.drone_id;
@@ -1082,36 +1082,47 @@
     `;
       }
 
-      if (cf.outcome === 'success') {
-        return `
-      <div class="gather-panel">
+      return '';
+    }
+
+    function renderGatherSheet() {
+      const cf = state.currentFlight;
+      const isOpen = !!cf;
+
+      let content = '';
+      if (cf) {
+        if (cf.outcome === 'success') {
+          content = `
         <div class="outcome-badge success">✓ Success — Flight #${cf.number}</div>
         ${renderPostFlightQuestions()}
         <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
           <button class="btn btn-success btn-lg btn-block" data-action="finish-flight">Log Flight</button>
           <button class="btn btn-ghost btn-lg btn-block" data-action="cancel-flight">← Back</button>
-        </div>
-      </div>
-    `;
+        </div>`;
+        } else {
+          const isFailure = cf.outcome === 'system_failure';
+          const badgeClass = isFailure ? 'failure' : 'abort';
+          const badgeLabel = isFailure ? '✕ System Failure' : '⊘ Operator Abort';
+          const reasonsKey = isFailure ? 'systemFailureReasons' : 'operatorAbortReasons';
+          const reasonLabel = isFailure ? 'What happened?' : 'Why did you abort?';
+          content = `
+        <div class="outcome-badge ${badgeClass}">${badgeLabel} — Flight #${cf.number}</div>
+        ${renderFailureFlow(reasonsKey, reasonLabel)}
+        ${cf.stage && isAirborne(cf) ? renderPostFlightQuestions() : ''}
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+          ${cf.stage && cf.reason ? `<button class="btn btn-success btn-lg btn-block" data-action="finish-flight">Log Flight</button>` : ''}
+          <button class="btn btn-ghost btn-lg btn-block" data-action="cancel-flight">← Back</button>
+        </div>`;
+        }
       }
 
-      const isFailure = cf.outcome === 'system_failure';
-      const badgeClass = isFailure ? 'failure' : 'abort';
-      const badgeLabel = isFailure ? '✕ System Failure' : '⊘ Operator Abort';
-      const reasonsKey = isFailure ? 'systemFailureReasons' : 'operatorAbortReasons';
-      const reasonLabel = isFailure ? 'What happened?' : 'Why did you abort?';
-
       return `
-    <div class="gather-panel">
-      <div class="outcome-badge ${badgeClass}">${badgeLabel} — Flight #${cf.number}</div>
-      ${renderFailureFlow(reasonsKey, reasonLabel)}
-      ${cf.stage && isAirborne(cf) ? renderPostFlightQuestions() : ''}
-      <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
-        ${cf.stage && cf.reason ? `<button class="btn btn-success btn-lg btn-block" data-action="finish-flight">Log Flight</button>` : ''}
-        <button class="btn btn-ghost btn-lg btn-block" data-action="cancel-flight">← Back</button>
+    <div class="modal-overlay ${isOpen ? 'open' : ''}">
+      <div class="modal">
+        <div class="modal-handle"></div>
+        <div class="modal-body">${content}</div>
       </div>
-    </div>
-  `;
+    </div>`;
     }
 
     function renderFailureFlow(reasonsKey, reasonLabel) {
