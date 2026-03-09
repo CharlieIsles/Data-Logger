@@ -1239,7 +1239,8 @@
     function renderBatteryModal() {
       const bats = getAvailableBatteries();
       const levelVal = state._pendingBatteryLevel ?? 100;
-      const levelSection = `
+      const showLevel = !!(state.session && state.session.measureBattery);
+      const levelSection = showLevel ? `
       <div style="margin-top:20px;">
         <div class="q-label" style="margin-bottom:12px;">Starting battery level</div>
         <div style="text-align:center; margin-bottom:16px;">
@@ -1249,8 +1250,8 @@
           value="${levelVal}" data-modal-field="initial-battery-level"
           oninput="document.getElementById('initial-battery-display').textContent = this.value + '%'" />
       </div>
-    `;
-      if (bats.length > 0) {
+    ` : '';
+      if (bats.length > 0 && !state._pendingMidSessionBatteryChange) {
         return `
       <div class="q-label">Which battery are you using?</div>
       <div class="chip-group">
@@ -1697,11 +1698,21 @@
       document.querySelectorAll('[data-change-battery-id]').forEach(el => {
         el.addEventListener('click', () => {
           const newBatId = el.dataset.changeBatteryId;
-          state._pendingBattery = newBatId;
-          state._pendingBatteryLevel = 100;
           state._pendingBatteryChange = false;
-          state._pendingMidSessionBatteryChange = true;
-          openModal = 'battery';
+          if (state.session && state.session.measureBattery) {
+            // Need to capture level — open modal (level only, battery already known)
+            state._pendingBattery = newBatId;
+            state._pendingBatteryLevel = 100;
+            state._pendingMidSessionBatteryChange = true;
+            openModal = 'battery';
+          } else {
+            // Battery already chosen, no level needed — record directly
+            state.betweenActions.push({ id: 'change_battery', newBatteryId: newBatId, time: new Date().toISOString() });
+            state.session.battery = newBatId;
+            state.batteryUse.currentLevel = null;
+            state.batteryUse.levelSetAt = null;
+            persistSession();
+          }
           render();
         });
       });
@@ -1894,8 +1905,10 @@
           state._pendingMidSessionBatteryChange = false;
         }
         state.session.battery = batVal;
-        state.batteryUse.currentLevel = initialLevel;
-        state.batteryUse.levelSetAt = new Date().toISOString();
+        if (state.session && state.session.measureBattery) {
+          state.batteryUse.currentLevel = initialLevel;
+          state.batteryUse.levelSetAt = new Date().toISOString();
+        }
         persistSession();
       } else if (id === 'landing-battery') {
         const level = state._pendingLandingLevel;
