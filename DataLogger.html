@@ -698,6 +698,7 @@
         currentLevel: null,   // number 0–100, or null if unset
         levelSetAt: null,     // ISO string — for staleness check (>2 min = attention)
         airborne: false,      // true after Liftoff, false after Landing
+        hasLanded: false,     // true after Landing, reset when outcome is recorded
         liftoffTime: null,    // ISO string
         liftoffLevel: null,   // number
         lastFlight: null      // { start, end, duration, liftoffTime, landingTime }
@@ -743,7 +744,7 @@
           state.betweenActions = s.betweenActions || [];
           state.batteryUse = s.batteryUse || {
             currentLevel: null, levelSetAt: null, airborne: false,
-            liftoffTime: null, liftoffLevel: null, lastFlight: null
+            hasLanded: false, liftoffTime: null, liftoffLevel: null, lastFlight: null
           };
         }
       } catch (e) { }
@@ -982,14 +983,16 @@
       const stale = bu.currentLevel !== null && bu.levelSetAt &&
         (Date.now() - new Date(bu.levelSetAt).getTime()) > 2 * 60 * 1000;
       const needsAttention = bu.currentLevel === null || stale;
-      const displayVal = bu.currentLevel !== null ? bu.currentLevel : 100;
 
       const elapsed = bu.airborne && bu.liftoffTime
         ? Math.floor((Date.now() - new Date(bu.liftoffTime).getTime()) / 1000)
         : 0;
       const flightBtn = bu.airborne
         ? `<button class="btn btn-warning btn-lg btn-block" data-action="landing">Flying — ${elapsed}s</button>`
-        : `<button class="btn btn-success btn-lg btn-block" data-action="liftoff"${bu.currentLevel === null ? ' disabled style="opacity:0.5"' : ''}>Lift off</button>`;
+        : `<button class="btn btn-success btn-lg btn-block" data-action="liftoff"${(bu.currentLevel === null || bu.hasLanded) ? ' disabled style="opacity:0.5"' : ''}>Lift off</button>`;
+
+      const levelDisplay = bu.currentLevel !== null ? bu.currentLevel + '%' : '—';
+      const adjustDisabled = bu.currentLevel === null ? ' disabled style="opacity:0.4"' : '';
 
       return `
       <div class="section-label">Battery Use</div>
@@ -997,11 +1000,14 @@
         <div class="battery-slider-control ${needsAttention ? 'battery-needs-attention' : ''}">
           <div class="battery-slider-header">
             <span class="field-label" style="margin:0">Current Battery</span>
-            <span class="battery-value" id="battery-level-display">${bu.currentLevel !== null ? displayVal + '%' : '—'}</span>
+            <span class="battery-value">${levelDisplay}</span>
           </div>
-          <input type="range" class="battery-slider" min="0" max="100" step="1"
-            value="${displayVal}" data-battery-slider
-            oninput="document.getElementById('battery-level-display').textContent = this.value + '%'" />
+          <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+            <button class="btn btn-danger" style="flex:1; justify-content:center;" data-adjust-level="-5"${adjustDisabled}>−5</button>
+            <button class="btn btn-danger" style="flex:1; justify-content:center;" data-adjust-level="-1"${adjustDisabled}>−1</button>
+            <button class="btn btn-success" style="flex:1; justify-content:center;" data-adjust-level="+1"${adjustDisabled}>+1</button>
+            <button class="btn btn-success" style="flex:1; justify-content:center;" data-adjust-level="+5"${adjustDisabled}>+5</button>
+          </div>
         </div>
         ${bu.lastFlight ? `<div class="battery-last-flight">Last flight: ${bu.lastFlight.start}% \u2192 ${bu.lastFlight.end}% (${formatDuration(bu.lastFlight.duration)})</div>` : ''}
         ${flightBtn}
@@ -1167,23 +1173,35 @@
 
     function renderLandingBatteryModal() {
       const maxVal = state.batteryUse.liftoffLevel !== null ? state.batteryUse.liftoffLevel : 100;
-      const elapsedMinutes = state.batteryUse.liftoffTime
-        ? (Date.now() - new Date(state.batteryUse.liftoffTime).getTime()) / 60000
-        : 0;
-      const defaultVal = Math.max(0, Math.round(maxVal - elapsedMinutes * 5));
+      const currentVal = state._pendingLandingLevel ?? maxVal;
       return `
-    <div style="text-align:center; margin-bottom: 16px;">
-      <span class="battery-value" id="landing-battery-display" style="font-size: 48px;">${defaultVal}%</span>
-      <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">max ${maxVal}% (liftoff level)</div>
+    <div style="text-align:center; margin-bottom: 24px;">
+      <span class="battery-value" style="font-size: 56px;">${currentVal}%</span>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">liftoff: ${maxVal}%</div>
     </div>
-    <input type="range" class="battery-slider" min="0" max="${maxVal}" step="1"
-      value="${defaultVal}" data-modal-field="landing-battery-level"
-      oninput="document.getElementById('landing-battery-display').textContent = this.value + '%'" />
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button class="btn btn-danger" style="flex:1; justify-content:center;" data-adjust-landing-level="-5">−5</button>
+      <button class="btn btn-danger" style="flex:1; justify-content:center;" data-adjust-landing-level="-1">−1</button>
+      <button class="btn btn-success" style="flex:1; justify-content:center;" data-adjust-landing-level="+1">+1</button>
+      <button class="btn btn-success" style="flex:1; justify-content:center;" data-adjust-landing-level="+5">+5</button>
+    </div>
   `;
     }
 
     function renderBatteryModal() {
       const bats = getAvailableBatteries();
+      const levelVal = state._pendingBatteryLevel ?? 100;
+      const levelSection = `
+      <div style="margin-top:20px;">
+        <div class="q-label" style="margin-bottom:12px;">Starting battery level</div>
+        <div style="text-align:center; margin-bottom:16px;">
+          <span class="battery-value" id="initial-battery-display" style="font-size:48px;">${levelVal}%</span>
+        </div>
+        <input type="range" class="battery-slider" min="0" max="100" step="1"
+          value="${levelVal}" data-modal-field="initial-battery-level"
+          oninput="document.getElementById('initial-battery-display').textContent = this.value + '%'" />
+      </div>
+    `;
       if (bats.length > 0) {
         return `
       <div class="q-label">Which battery are you using?</div>
@@ -1192,6 +1210,7 @@
           <button class="chip ${state._pendingBattery === b ? 'selected' : ''}" data-battery-option="${b}">Battery ${b}</button>
         `).join('')}
       </div>
+      ${levelSection}
     `;
       }
       return `
@@ -1199,6 +1218,7 @@
         <label class="field-label">Battery ID</label>
         <input class="field-input" type="text" value="${state._pendingBattery || ''}" data-modal-field="battery-id" placeholder="Battery ID" />
       </div>
+      ${levelSection}
     `;
     }
 
@@ -1462,6 +1482,7 @@
             actionsBefore: [...state.betweenActions]
           };
           state.betweenActions = [];
+          state.batteryUse.hasLanded = false;
           persistSession();
           render();
         });
@@ -1543,16 +1564,11 @@
       document.querySelectorAll('[data-change-battery-id]').forEach(el => {
         el.addEventListener('click', () => {
           const newBatId = el.dataset.changeBatteryId;
-          state.betweenActions.push({
-            id: 'change_battery',
-            newBatteryId: newBatId,
-            time: new Date().toISOString()
-          });
-          state.session.battery = newBatId;
+          state._pendingBattery = newBatId;
+          state._pendingBatteryLevel = 100;
           state._pendingBatteryChange = false;
-          state.batteryUse.currentLevel = null;
-          state.batteryUse.levelSetAt = null;
-          persistSession();
+          state._pendingMidSessionBatteryChange = true;
+          openModal = 'battery';
           render();
         });
       });
@@ -1591,12 +1607,15 @@
       });
 
       // Battery Use handlers — any slider change commits the value
-      document.querySelector('[data-battery-slider]')?.addEventListener('pointerup', () => {
-        const slider = document.querySelector('[data-battery-slider]');
-        state.batteryUse.currentLevel = parseInt(slider.value, 10);
-        state.batteryUse.levelSetAt = new Date().toISOString();
-        persistSession();
-        render();
+      document.querySelectorAll('[data-adjust-level]').forEach(el => {
+        el.addEventListener('click', () => {
+          if (state.batteryUse.currentLevel === null) return;
+          const delta = parseInt(el.dataset.adjustLevel, 10);
+          state.batteryUse.currentLevel = Math.max(0, Math.min(100, state.batteryUse.currentLevel + delta));
+          state.batteryUse.levelSetAt = new Date().toISOString();
+          persistSession();
+          render();
+        });
       });
 
       document.querySelector('[data-action="liftoff"]')?.addEventListener('click', () => {
@@ -1609,8 +1628,22 @@
       });
 
       document.querySelector('[data-action="landing"]')?.addEventListener('click', () => {
+        const maxVal = state.batteryUse.liftoffLevel ?? 100;
+        const elapsedMinutes = state.batteryUse.liftoffTime
+          ? (Date.now() - new Date(state.batteryUse.liftoffTime).getTime()) / 60000
+          : 0;
+        state._pendingLandingLevel = Math.max(0, Math.round(maxVal - elapsedMinutes * 5));
         openModal = 'landing-battery';
         render();
+      });
+
+      document.querySelectorAll('[data-adjust-landing-level]').forEach(el => {
+        el.addEventListener('click', () => {
+          const delta = parseInt(el.dataset.adjustLandingLevel, 10);
+          const maxVal = state.batteryUse.liftoffLevel ?? 100;
+          state._pendingLandingLevel = Math.max(0, Math.min(maxVal, (state._pendingLandingLevel ?? maxVal) + delta));
+          render();
+        });
       });
     }
 
@@ -1661,7 +1694,7 @@
           state.betweenActions = [];
           state.batteryUse = {
             currentLevel: null, levelSetAt: null, airborne: false,
-            liftoffTime: null, liftoffLevel: null, lastFlight: null
+            hasLanded: false, liftoffTime: null, liftoffLevel: null, lastFlight: null
           };
           persistSession();
           state._pendingMeasureBattery = !!state.session.measureBattery;
@@ -1700,6 +1733,7 @@
         persistSession();
         if (!state.session.battery) {
           state._pendingBattery = '';
+          state._pendingBatteryLevel = 100;
           openModal = 'battery';
         } else {
           openModal = null;
@@ -1710,12 +1744,23 @@
         const batInput = document.querySelector('[data-modal-field="battery-id"]');
         const batVal = batInput ? batInput.value.trim() : state._pendingBattery;
         if (!batVal) return; // battery is required — stay on modal
+        const levelInput = document.querySelector('[data-modal-field="initial-battery-level"]');
+        const initialLevel = levelInput ? parseInt(levelInput.value, 10) : (state._pendingBatteryLevel ?? 100);
+        if (state._pendingMidSessionBatteryChange) {
+          state.betweenActions.push({
+            id: 'change_battery',
+            newBatteryId: batVal,
+            time: new Date().toISOString()
+          });
+          state._pendingMidSessionBatteryChange = false;
+        }
         state.session.battery = batVal;
+        state.batteryUse.currentLevel = initialLevel;
+        state.batteryUse.levelSetAt = new Date().toISOString();
         persistSession();
       } else if (id === 'landing-battery') {
-        const input = document.querySelector('[data-modal-field="landing-battery-level"]');
-        const level = parseInt(input?.value, 10);
-        if (isNaN(level) || level < 0 || level > 100) return; // stay on modal
+        const level = state._pendingLandingLevel;
+        if (level === null || level === undefined) return; // stay on modal
         const landingTime = new Date().toISOString();
         const duration = Math.round((new Date(landingTime) - new Date(state.batteryUse.liftoffTime)) / 1000);
         state.batteryUse.lastFlight = {
@@ -1728,6 +1773,7 @@
         state.batteryUse.currentLevel = level;
         state.batteryUse.levelSetAt = landingTime;
         state.batteryUse.airborne = false;
+        state.batteryUse.hasLanded = true;
         state.batteryUse.liftoffTime = null;
         state.batteryUse.liftoffLevel = null;
         persistSession();
@@ -1843,7 +1889,7 @@
       state.betweenActions = [];
       state.batteryUse = {
         currentLevel: null, levelSetAt: null, airborne: false,
-        liftoffTime: null, liftoffLevel: null, lastFlight: null
+        hasLanded: false, liftoffTime: null, liftoffLevel: null, lastFlight: null
       };
       clearSessionCache();
       localStorage.setItem('fieldlogger_date', today);
