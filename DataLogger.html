@@ -803,6 +803,10 @@
       } catch (e) { }
     }
 
+    function formatReg(reg) {
+      return /^[A-Z]{2}[0-9]{2}[A-Z]{3}$/.test(reg) ? reg.slice(0, 4) + ' ' + reg.slice(4) : reg;
+    }
+
     function updateVehicleSearch(input) {
       if (!state._pendingVehicle) state._pendingVehicle = {};
       state._pendingVehicle.registration = input.value;
@@ -926,7 +930,7 @@
       }
 
       const vehLabel = vehSet
-        ? [state.vehicle.registration, state.vehicle.make, state.vehicle.model].filter(Boolean).join(' · ')
+        ? [formatReg(state.vehicle.registration), state.vehicle.make, state.vehicle.model].filter(Boolean).join(' · ')
         : 'Tap to set';
       html += `
       <div style="display: flex; align-items: stretch; gap: 8px; margin: 8px 16px;">
@@ -1292,7 +1296,7 @@
           <div class="chip-group">
             ${matches.map(k => {
               const cv = state.vehicleCache[k];
-              const label = [cv.registration, cv.make, cv.model].filter(Boolean).join(' · ');
+              const label = [formatReg(cv.registration), cv.make, cv.model].filter(Boolean).join(' · ');
               return `<button class="chip ${reg === k ? 'selected' : ''}" data-vehicle-cache-reg="${k}">${label}</button>`;
             }).join('')}
           </div>
@@ -1309,7 +1313,7 @@
         </div>
       `;
       return `
-        <div style="font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--text);">${v.registration || ''}</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--text);">${formatReg(v.registration || '')}</div>
         <div class="field">
           <label class="field-label">Make</label>
           <input class="field-input" type="text" value="${v.make || ''}" data-modal-field="v-make" />
@@ -1583,6 +1587,15 @@
       document.querySelectorAll('[data-vehicle-colour]').forEach(el => {
         el.addEventListener('click', () => {
           if (!state._pendingVehicle) state._pendingVehicle = {};
+          // Scrape current text/number fields before re-rendering so they aren't lost
+          const makeEl = document.querySelector('[data-modal-field="v-make"]');
+          const modelEl = document.querySelector('[data-modal-field="v-model"]');
+          if (makeEl) state._pendingVehicle.make = makeEl.value;
+          if (modelEl) state._pendingVehicle.model = modelEl.value;
+          ['widthIncMirrors', 'widthWoMirrors', 'height', 'length', 'frontOverhang'].forEach(f => {
+            const input = document.querySelector(`[data-modal-field="v-${f}"]`);
+            if (input) state._pendingVehicle[f] = input.value !== '' ? Number(input.value) : '';
+          });
           state._pendingVehicle.colour = el.dataset.vehicleColour;
           render();
         });
