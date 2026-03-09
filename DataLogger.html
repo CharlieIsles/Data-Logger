@@ -984,8 +984,11 @@
       const needsAttention = bu.currentLevel === null || stale;
       const displayVal = bu.currentLevel !== null ? bu.currentLevel : 100;
 
+      const elapsed = bu.airborne && bu.liftoffTime
+        ? Math.floor((Date.now() - new Date(bu.liftoffTime).getTime()) / 1000)
+        : 0;
       const flightBtn = bu.airborne
-        ? `<button class="btn btn-warning btn-lg btn-block" data-action="landing">Landing</button>`
+        ? `<button class="btn btn-warning btn-lg btn-block" data-action="landing">Flying — ${elapsed}s</button>`
         : `<button class="btn btn-success btn-lg btn-block" data-action="liftoff"${bu.currentLevel === null ? ' disabled style="opacity:0.5"' : ''}>Lift off</button>`;
 
       return `
@@ -1588,7 +1591,7 @@
       });
 
       // Battery Use handlers — any slider change commits the value
-      document.querySelector('[data-battery-slider]')?.addEventListener('change', () => {
+      document.querySelector('[data-battery-slider]')?.addEventListener('pointerup', () => {
         const slider = document.querySelector('[data-battery-slider]');
         state.batteryUse.currentLevel = parseInt(slider.value, 10);
         state.batteryUse.levelSetAt = new Date().toISOString();
@@ -1848,10 +1851,14 @@
 
     render();
 
-    // Re-render every 30s so the battery staleness indicator updates automatically
+    // Re-render every second when airborne (flight timer), every 30s otherwise (staleness check)
+    let _tickCount = 0;
     setInterval(() => {
-      if (state.session && state.session.measureBattery) render();
-    }, 30000);
+      if (!state.session?.measureBattery) return;
+      _tickCount++;
+      if (openModal === 'landing-battery') return; // don't reset the landing slider mid-entry
+      if (state.batteryUse?.airborne || _tickCount % 30 === 0) render();
+    }, 1000);
   </script>
 </body>
 
