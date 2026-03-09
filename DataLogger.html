@@ -679,7 +679,9 @@
 
       locations: ["Dunstable", "Swindon"],
 
-      batterySlots: 4
+      batterySlots: 4,
+
+      vehicleColours: ["Black", "Blue", "Dark Blue", "Dark Grey", "Grey", "Red", "Silver", "White"]
     };
 
     // ============================================================
@@ -689,6 +691,8 @@
       operator: {},
       equipment: {},
       location: "",
+      vehicle: {},
+      vehicleCache: {},
       session: null,
       flights: [],
       currentFlight: null,
@@ -716,6 +720,7 @@
           state.operator = p.operator || {};
           state.equipment = p.equipment || {};
           state.location = p.location || "";
+          state.vehicle = p.vehicle || {};
         }
       } catch (e) { }
       if (!state.equipment.batteries) {
@@ -728,7 +733,8 @@
         localStorage.setItem('fieldlogger_profile', JSON.stringify({
           operator: state.operator,
           equipment: state.equipment,
-          location: state.location
+          location: state.location,
+          vehicle: state.vehicle
         }));
       } catch (e) { }
     }
@@ -784,6 +790,28 @@
       try { localStorage.removeItem('fieldlogger_store'); } catch (e) { }
     }
 
+    function loadVehicleCache() {
+      try {
+        const saved = localStorage.getItem('fieldlogger_vehicle_cache');
+        if (saved) state.vehicleCache = JSON.parse(saved) || {};
+      } catch (e) { state.vehicleCache = {}; }
+    }
+
+    function persistVehicleCache() {
+      try {
+        localStorage.setItem('fieldlogger_vehicle_cache', JSON.stringify(state.vehicleCache));
+      } catch (e) { }
+    }
+
+    function updateVehicleSearch(input) {
+      if (!state._pendingVehicle) state._pendingVehicle = {};
+      state._pendingVehicle.registration = input.value;
+      const pos = input.selectionStart;
+      render();
+      const el = document.querySelector('[data-modal-field="v-registration"]');
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
+    }
+
     function hasPendingData() {
       return state.sessionStore.length > 0 || (state.session && state.flights.length > 0);
     }
@@ -797,8 +825,9 @@
       const hasOperator = !!(state.operator.name);
       const hasEquipment = !!(state.equipment.drone_id && state.equipment.sw_version);
       const hasLocation = !!state.location;
+      const hasVehicle = !!(state.vehicle && state.vehicle.registration);
       const hasSession = !!state.session;
-      return hasOperator && hasEquipment && hasLocation && hasSession;
+      return hasOperator && hasEquipment && hasLocation && hasVehicle && hasSession;
     }
 
     // ============================================================
@@ -830,7 +859,7 @@
     function renderTopbar() {
       return `
     <div class="topbar">
-      <h1>Field Logger</h1>
+      <h1>Data Logger 2</h1>
       <div class="topbar-actions">
         ${hasPendingData() ? `<button class="btn btn-ghost btn-sm" data-action="download">↓ Save</button>` : ''}
       </div>
@@ -845,6 +874,7 @@
       const eqSet = state.equipment.drone_model || state.equipment.drone_id;
       const locSet = state.location;
       const swSet = !!state.equipment.sw_version;
+      const vehSet = !!(state.vehicle && state.vehicle.registration);
 
       let html = '';
 
@@ -895,6 +925,18 @@
       </div>`;
       }
 
+      const vehLabel = vehSet
+        ? [state.vehicle.registration, state.vehicle.make, state.vehicle.model].filter(Boolean).join(' · ')
+        : 'Tap to set';
+      html += `
+      <div style="display: flex; align-items: stretch; gap: 8px; margin: 8px 16px;">
+        <div class="session-card" data-modal="vehicle-reg" style="flex: 1; margin: 0;">
+          <div class="summary-card-label">Vehicle</div>
+          <div class="summary-card-value ${vehSet ? '' : 'not-set'}">${vehLabel}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-action="new-vehicle" style="align-self: stretch; white-space: nowrap;">New Vehicle</button>
+      </div>`;
+
       if (state.session) {
         const st = CONFIG.sessionTypes.find(t => t.id === state.session.type);
         const config = state.session.config || {};
@@ -933,11 +975,13 @@
       const hasOperator = !!(state.operator.name);
       const hasEquipment = !!(state.equipment.drone_id && state.equipment.sw_version);
       const hasLocation = !!state.location;
+      const hasVehicle = !!(state.vehicle && state.vehicle.registration);
 
       const missing = [];
       if (!hasOperator) missing.push('Operator');
       if (!hasEquipment) missing.push('Equipment');
       if (!hasLocation) missing.push('Location');
+      if (!hasVehicle) missing.push('Vehicle');
 
       if (missing.length > 0) {
         return `
@@ -959,11 +1003,13 @@
       const hasOperator = !!(state.operator.name);
       const hasEquipment = !!(state.equipment.drone_id && state.equipment.sw_version);
       const hasLocation = !!state.location;
+      const hasVehicle = !!(state.vehicle && state.vehicle.registration);
 
       const missing = [];
       if (!hasOperator) missing.push('Operator');
       if (!hasEquipment) missing.push('Equipment');
       if (!hasLocation) missing.push('Location');
+      if (!hasVehicle) missing.push('Vehicle');
 
       return `
     <div class="banner">
@@ -1163,6 +1209,8 @@
       return `
     ${renderModal('operator', 'Operator', renderFormFields(CONFIG.operatorFields, state.operator, 'op'))}
     ${renderModal('equipment', 'Equipment', renderEquipmentModal())}
+    ${renderModal('vehicle-reg', 'Vehicle', renderVehicleRegModal())}
+    ${renderModal('vehicle-detail', 'Vehicle Details', renderVehicleDetailModal())}
     ${renderModal('location-sw', 'Location & Version', renderLocationSwModal())}
     ${renderModal('new-session', 'New Session', renderNewSessionModal())}
     ${renderModal('battery', 'Select Battery', renderBatteryModal())}
@@ -1220,6 +1268,69 @@
       </div>
       ${levelSection}
     `;
+    }
+
+    function renderVehicleRegModal() {
+      const reg = (state._pendingVehicle && state._pendingVehicle.registration) || '';
+      const cacheKeys = Object.keys(state.vehicleCache);
+      const matches = reg
+        ? cacheKeys.filter(k => k.startsWith(reg))
+        : cacheKeys;
+      return `
+        <div class="field">
+          <label class="field-label">Registration</label>
+          <input class="field-input" type="text" value="${reg}"
+            data-modal-field="v-registration"
+            oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g,''); updateVehicleSearch(this);"
+            placeholder="e.g. AB12CDE"
+            autocomplete="off" autocorrect="off" spellcheck="false"
+          />
+        </div>
+        ${matches.length > 0 ? `
+          <div class="q-label">Known vehicles</div>
+          <div class="chip-group">
+            ${matches.map(k => {
+              const cv = state.vehicleCache[k];
+              const label = [cv.registration, cv.make, cv.model].filter(Boolean).join(' · ');
+              return `<button class="chip ${reg === k ? 'selected' : ''}" data-vehicle-cache-reg="${k}">${label}</button>`;
+            }).join('')}
+          </div>
+        ` : ''}
+      `;
+    }
+
+    function renderVehicleDetailModal() {
+      const v = state._pendingVehicle || {};
+      const numField = (id, label) => `
+        <div class="field">
+          <label class="field-label">${label} (cm)</label>
+          <input class="field-input" type="number" inputmode="decimal" min="0" value="${v[id] !== undefined && v[id] !== '' ? v[id] : ''}" data-modal-field="v-${id}" />
+        </div>
+      `;
+      return `
+        <div style="font-family:'JetBrains Mono',monospace; font-size:15px; font-weight:600; margin-bottom:16px; color:var(--text);">${v.registration || ''}</div>
+        <div class="field">
+          <label class="field-label">Make</label>
+          <input class="field-input" type="text" value="${v.make || ''}" data-modal-field="v-make" />
+        </div>
+        <div class="field">
+          <label class="field-label">Model</label>
+          <input class="field-input" type="text" value="${v.model || ''}" data-modal-field="v-model" />
+        </div>
+        <div class="q-label">Colour</div>
+        <div class="chip-group">
+          ${CONFIG.vehicleColours.map(c => `
+            <button class="chip ${v.colour === c ? 'selected' : ''}" data-vehicle-colour="${c}">${c}</button>
+          `).join('')}
+        </div>
+        <div class="battery-grid">
+          ${numField('widthIncMirrors', 'Width inc. mirrors')}
+          ${numField('widthWoMirrors', 'Width w/o mirrors')}
+          ${numField('height', 'Height')}
+          ${numField('length', 'Length')}
+          ${numField('frontOverhang', 'Front overhang')}
+        </div>
+      `;
     }
 
     function renderModal(id, title, body) {
@@ -1376,6 +1487,7 @@
           if (openModal === 'session-config') state._pendingMeasureBattery = !!(state.session && state.session.measureBattery);
           if (openModal === 'location-sw') { state._pendingLocation = null; state._pendingSwVersion = null; }
           if (openModal === 'equipment') state._pendingEquipment = null;
+          if (openModal === 'vehicle-reg') state._pendingVehicle = { registration: state.vehicle.registration || '' };
           render();
         });
       });
@@ -1450,6 +1562,27 @@
         el.addEventListener('click', () => {
           if (!state.session.config) state.session.config = {};
           state.session.config[el.dataset.sessionConfigField] = el.dataset.sessionConfigValue;
+          render();
+        });
+      });
+
+      // Vehicle cache suggestion chips (in reg modal)
+      document.querySelectorAll('[data-vehicle-cache-reg]').forEach(el => {
+        el.addEventListener('click', () => {
+          const cached = state.vehicleCache[el.dataset.vehicleCacheReg];
+          if (cached) {
+            state._pendingVehicle = { ...cached };
+            openModal = 'vehicle-detail';
+            render();
+          }
+        });
+      });
+
+      // Vehicle colour chips
+      document.querySelectorAll('[data-vehicle-colour]').forEach(el => {
+        el.addEventListener('click', () => {
+          if (!state._pendingVehicle) state._pendingVehicle = {};
+          state._pendingVehicle.colour = el.dataset.vehicleColour;
           render();
         });
       });
@@ -1578,13 +1711,19 @@
         render();
       });
 
+      document.querySelector('[data-action="new-vehicle"]')?.addEventListener('click', () => {
+        state._pendingVehicle = {};
+        openModal = 'vehicle-reg';
+        render();
+      });
+
       document.querySelector('[data-action="download"]')?.addEventListener('click', downloadSession);
 
       document.querySelector('[data-action="new-session"]')?.addEventListener('click', () => {
         if (confirm('Start a new session? Current session will be added to the download queue.')) {
           // Archive current session to the store if it has any completed flights
           if (state.session && state.flights.length > 0) {
-            state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights] });
+            state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights], vehicle: { ...state.vehicle } });
             persistStore();
           }
           state.session = null;
@@ -1717,7 +1856,7 @@
         }
         state.session.measureBattery = !!state._pendingMeasureBattery;
         if (state.flights.length > 0) {
-          state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights] });
+          state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights], vehicle: { ...state.vehicle } });
           persistStore();
           state.session = {
             type: state.session.type,
@@ -1777,6 +1916,30 @@
         state.batteryUse.liftoffTime = null;
         state.batteryUse.liftoffLevel = null;
         persistSession();
+      } else if (id === 'vehicle-reg') {
+        const regInput = document.querySelector('[data-modal-field="v-registration"]');
+        const reg = (regInput ? regInput.value : '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!reg) return;
+        const cached = state.vehicleCache[reg];
+        state._pendingVehicle = cached ? { ...cached } : { registration: reg };
+        state._pendingVehicle.registration = reg;
+        openModal = 'vehicle-detail';
+        render();
+        return;
+      } else if (id === 'vehicle-detail') {
+        if (!state._pendingVehicle || !state._pendingVehicle.registration) return;
+        const makeInput = document.querySelector('[data-modal-field="v-make"]');
+        const modelInput = document.querySelector('[data-modal-field="v-model"]');
+        if (makeInput) state._pendingVehicle.make = makeInput.value;
+        if (modelInput) state._pendingVehicle.model = modelInput.value;
+        ['widthIncMirrors', 'widthWoMirrors', 'height', 'length', 'frontOverhang'].forEach(f => {
+          const input = document.querySelector(`[data-modal-field="v-${f}"]`);
+          if (input) state._pendingVehicle[f] = input.value !== '' ? Number(input.value) : '';
+        });
+        state.vehicle = { ...state._pendingVehicle };
+        state.vehicleCache[state.vehicle.registration] = { ...state.vehicle };
+        persistVehicleCache();
+        persistProfile();
       }
       openModal = null;
       render();
@@ -1806,14 +1969,14 @@
       // Gather all sessions: archived store + current active session (if it has flights)
       const sessionsToExport = [...state.sessionStore];
       if (state.session && state.flights.length > 0) {
-        sessionsToExport.push({ session: { ...state.session }, flights: [...state.flights] });
+        sessionsToExport.push({ session: { ...state.session }, flights: [...state.flights], vehicle: { ...state.vehicle } });
       }
       if (sessionsToExport.length === 0) return;
 
       const now = new Date();
       const data = {
         exportedAt: now.toISOString(),
-        sessions: sessionsToExport.map(({ session, flights }) => ({
+        sessions: sessionsToExport.map(({ session, flights, vehicle: v }) => ({
           type: session.type,
           startTime: session.startTime,
           operator: { ...state.operator },
@@ -1823,6 +1986,7 @@
             drone_id: state.equipment.drone_id || ''
           },
           location: state.location,
+          vehicle: v || {},
           config: session.config || {},
           // battery: session.battery || '',
           flights: flights.map(f => ({
@@ -1865,8 +2029,9 @@
     // ============================================================
     // INIT
     // ============================================================
-    loadProfile();  // loads operator, equipment, location
-    loadStore();    // loads accumulated sessions awaiting download
+    loadProfile();       // loads operator, equipment, location, vehicle
+    loadVehicleCache();  // loads vehicle lookup cache
+    loadStore();         // loads accumulated sessions awaiting download
 
     const today = new Date().toISOString().slice(0, 10);
     const lastDate = localStorage.getItem('fieldlogger_date');
@@ -1878,7 +2043,7 @@
       // New day: rescue any unsaved flights from yesterday into the download queue
       loadSessionCache();
       if (state.session && state.flights.length > 0) {
-        state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights] });
+        state.sessionStore.push({ session: { ...state.session }, flights: [...state.flights], vehicle: { ...state.vehicle } });
         persistStore();
       }
       // Reset session-specific state; keep operator/equipment
