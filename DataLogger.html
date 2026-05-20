@@ -545,8 +545,17 @@
 
     /* Attention state — pulsing amber border */
     @keyframes battery-pulse {
-      0%, 100% { border-color: var(--warning); box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.5); }
-      50%       { border-color: var(--warning); box-shadow: 0 0 0 5px rgba(245, 166, 35, 0); }
+
+      0%,
+      100% {
+        border-color: var(--warning);
+        box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.5);
+      }
+
+      50% {
+        border-color: var(--warning);
+        box-shadow: 0 0 0 5px rgba(245, 166, 35, 0);
+      }
     }
 
     .battery-needs-attention {
@@ -559,6 +568,7 @@
       background: var(--warning);
       color: #0f1117;
     }
+
     .btn-warning:active {
       filter: brightness(0.9);
     }
@@ -645,6 +655,13 @@
 
       sessionTypes: [
         {
+          id: "Mk8_testing",
+          label: "Mk8 Delivery Testing",
+          fields: [
+            { id: "Type", label: "Test Type", type: "enum", options: ["TCH Std", "TCH + Ghosts"] }
+          ]
+        },
+        {
           id: "localisation_testing",
           label: "Localisation Testing",
           fields: [
@@ -677,9 +694,9 @@
         { id: "drone_id", label: "Drone ID", type: "text" }
       ],
 
-      locations: ["Dunstable", "Swindon"],
+      locations: ["Kingston", "Dunstable", "Swindon"],
 
-      batterySlots: 4,
+      batterySlots: 7,
 
       vehicleColours: ["Black", "Blue", "Dark Blue", "Dark Grey", "Grey", "Red", "Silver", "White"]
     };
@@ -813,7 +830,7 @@
       const pos = input.selectionStart;
       render();
       const el = document.querySelector('[data-modal-field="v-registration"]');
-      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} }
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) { } }
     }
 
     function hasPendingData() {
@@ -1306,10 +1323,10 @@
           <div class="q-label">Known vehicles</div>
           <div class="chip-group">
             ${matches.map(k => {
-              const cv = state.vehicleCache[k];
-              const label = [formatReg(cv.registration), cv.make, cv.model].filter(Boolean).join(' · ');
-              return `<button class="chip ${reg === k ? 'selected' : ''}" data-vehicle-cache-reg="${k}">${label}</button>`;
-            }).join('')}
+        const cv = state.vehicleCache[k];
+        const label = [formatReg(cv.registration), cv.make, cv.model].filter(Boolean).join(' · ');
+        return `<button class="chip ${reg === k ? 'selected' : ''}" data-vehicle-cache-reg="${k}">${label}</button>`;
+      }).join('')}
           </div>
         ` : ''}
       `;
